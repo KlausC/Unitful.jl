@@ -1,3 +1,11 @@
+- v0.3.0
+  - Introduce levels (logarithmic quantities).
+  - Update syntax for Julia 0.6 and reorganize code for clarity.
+  - `dimension` now accounts for the dimensions of `T` in `dimension(::Quantity{T})`.
+  - `isapprox(1.0u"m",5)` returns `false` instead of throwing a `DimensionError`,
+    in keeping with the behavior of an equality check (`==`).
+  - Deprecated `dimension(x::AbstractArray{T}) where T<:Number`, use broadcasting instead.
+  - Deprecated `dimension(x::AbstractArray{T}) where T<:Units`, use broadcasting instead.
 - v0.2.6
   - Fix and close [#52](https://github.com/ajkeller34/Unitful.jl/issues/52).
   - Implement `Base.rtoldefault` for Quantity types

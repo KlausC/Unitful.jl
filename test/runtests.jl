@@ -7,7 +7,8 @@ import Unitful:
     DimensionError,
     FreeUnits,
     ContextUnits,
-    FixedUnits
+    FixedUnits,
+    LogInfo, Level, li_dB, dB, dBm, dBV
 
 import Unitful:
     nm, μm, mm, cm, m, km, inch, ft, mi,
@@ -16,7 +17,8 @@ import Unitful:
     °Ra, °F, °C, K,
     rad, °,
     ms, s, minute, hr,
-    J, A, N, mol, cd, V
+    J, A, N, mol, cd, V,
+    mW, Hz
 
 import Unitful: 𝐋, 𝐓, 𝐍
 
@@ -31,12 +33,6 @@ import Unitful:
 
 import Unitful:
     LengthUnits, AreaUnits, MassUnits
-
-if VERSION < v"0.6.0-dev.2390"  # Make LinSpace generic, PR 18777
-    using Ranges
-    linspace = Ranges.linspace
-    LinSpace = Ranges.LinSpace
-end
 
 @testset "Construction" begin
     @test isa(NoUnits, FreeUnits)
@@ -208,11 +204,7 @@ end
         @test @inferred(upreferred(1g |> ContextUnits(g,mg))) == 1000mg
 
         # The following seems to have broken on the release-0.5 branch, I guess
-        @static if VERSION >= v"0.6.0-dev+0" # works here, broken on 0.5.0
-            @test @inferred(upreferred(1N)) === (1//1)*kg*m/s^2
-        else
-            @test upreferred(1N) === (1//1)*kg*m/s^2
-        end
+        @test @inferred(upreferred(1N)) === (1//1)*kg*m/s^2
     end
     @testset "> promote_unit" begin
         @test Unitful.promote_unit(FreeUnits(m)) === FreeUnits(m)
@@ -252,10 +244,7 @@ end
         @test @inferred(promote(1g, 1.0kg)) === (0.001kg, 1.0kg)
         @test @inferred(promote(1.0m, 1kg)) === (1.0m, 1.0kg)
         @test @inferred(promote(1kg, 1.0m)) === (1.0kg, 1.0m)
-        @static if VERSION >= v"0.6.0-dev+0"
-            # broken on 0.5 too but i want the other tests to run and it exits early on 0.5
-            @test_broken @inferred(promote(1.0m, 1)) === (1.0m, 1.0)         # issue 52
-        end
+        @test_broken @inferred(promote(1.0m, 1)) === (1.0m, 1.0)         # issue 52
 
         # prefer no units for dimensionless numbers
         @test @inferred(promote(1.0mm/m, 1.0km/m)) === (0.001,1000.0)
@@ -333,7 +322,8 @@ end
     @test @inferred(dimension(m/s)) === 𝐋/𝐓
     @test @inferred(dimension(1u"mol")) === 𝐍
     @test @inferred(dimension(μm/m)) === NoDims
-    @test dimension([1u"m", 1u"s"]) == [𝐋, 𝐓]
+    @test dimension.([1u"m", 1u"s"]) == [𝐋, 𝐓]
+    @test dimension.([u"m", u"s"]) == [𝐋, 𝐓]
     @test (𝐋/𝐓)^2 === 𝐋^2 / 𝐓^2
     @test isa(m, LengthUnits)
     @test isa(ContextUnits(m,km), LengthUnits)
@@ -478,31 +468,17 @@ end
         @test_throws ErrorException @inferred(_pow_2_3(𝐋))
         @test_throws ErrorException @inferred(_pow_2_3(1.0m))
 
-        @static if VERSION >= v"0.6.0-dev.2834"
-            @test @inferred(_pow_m3(m)) == m^-3
-            @test @inferred(_pow_0(m)) == NoUnits
-            @test @inferred(_pow_3(m)) == m^3
+        @test @inferred(_pow_m3(m)) == m^-3
+        @test @inferred(_pow_0(m)) == NoUnits
+        @test @inferred(_pow_3(m)) == m^3
 
-            @test @inferred(_pow_m3(𝐋)) == 𝐋^-3
-            @test @inferred(_pow_0(𝐋)) == NoDims
-            @test @inferred(_pow_3(𝐋)) == 𝐋^3
+        @test @inferred(_pow_m3(𝐋)) == 𝐋^-3
+        @test @inferred(_pow_0(𝐋)) == NoDims
+        @test @inferred(_pow_3(𝐋)) == 𝐋^3
 
-            @test @inferred(_pow_m3(1.0m)) == 1.0m^-3
-            @test @inferred(_pow_0(1.0m)) == 1.0
-            @test @inferred(_pow_3(1.0m)) == 1.0m^3
-        else
-            @test _pow_m3(m) == m^-3
-            @test _pow_0(m) == NoUnits
-            @test _pow_3(m) == m^3
-
-            @test _pow_m3(𝐋) == 𝐋^-3
-            @test _pow_0(𝐋) == NoDims
-            @test _pow_3(𝐋) == 𝐋^3
-
-            @test _pow_m3(1.0m) == 1.0m^-3
-            @test _pow_0(1.0m) == 1.0
-            @test _pow_3(1.0m) == 1.0m^3
-        end
+        @test @inferred(_pow_m3(1.0m)) == 1.0m^-3
+        @test @inferred(_pow_0(1.0m)) == 1.0
+        @test @inferred(_pow_3(1.0m)) == 1.0m^3
     end
     @testset "> Trigonometry" begin
         @test @inferred(sin(0.0rad)) == 0.0
@@ -542,7 +518,7 @@ end
         @test isapprox(1.0u"m",(1.0+eps(1.0))u"m")
         @test isapprox(1.0u"μm/m",1e-6)
         @test !isapprox(1.0u"μm/m",1e-7)
-        @test_throws DimensionError isapprox(1.0u"m",5)
+        @test !isapprox(1.0u"m",5)
         @test frexp(1.5m) == (0.75m, 1.0)
         @test unit(nextfloat(0.0m)) == m
         @test unit(prevfloat(0.0m)) == m
@@ -586,11 +562,7 @@ end
         @test @inferred(fma(1.0mm/m, 1.0, 1.0)) ≈ 1.001              # llvm good
         @test @inferred(fma(1.0, 1.0μm/m, 1.0μm/m)) === 2.0μm/m      # llvm good
         @test @inferred(fma(2, 1.0, 1μm/m)) === 2.000001             # llvm BAD
-        @static if VERSION >= v"0.6.0-dev+0"    # works here, broken on 0.5.0
-            @test @inferred(fma(2, 1μm/m, 1mm/m)) === 501//500000    # llvm BAD
-        else
-            @test fma(2, 1μm/m, 1mm/m) === 501//500000               # llvm BAD
-        end
+        @test @inferred(fma(2, 1μm/m, 1mm/m)) === 501//500000    # llvm BAD
         @test @inferred(muladd(2.0, 3.0m, 1.0m)) === 7.0m
         @test @inferred(muladd(2.0, 3.0m, 35mm)) === 6.035m
         @test @inferred(muladd(2.0m, 3.0, 35mm)) === 6.035m
@@ -602,11 +574,7 @@ end
         @test @inferred(muladd(1.0mm/m, 1.0, 1.0)) ≈ 1.001
         @test @inferred(muladd(1.0, 1.0μm/m, 1.0μm/m)) === 2.0μm/m
         @test @inferred(muladd(2, 1.0, 1μm/m)) === 2.000001
-        @static if VERSION >= v"0.6.0-dev+0"    # works here, broken on 0.5.0
-            @test @inferred(muladd(2, 1μm/m, 1mm/m)) === 501//500000
-        else
-            @test muladd(2, 1μm/m, 1mm/m) === 501//500000
-        end
+        @test @inferred(muladd(2, 1μm/m, 1mm/m)) === 501//500000
         @test_throws DimensionError fma(2m, 1/m, 1m)
         @test_throws DimensionError fma(2, 1m, 1V)
     end
@@ -885,21 +853,14 @@ end
         @testset ">> LinSpace" begin
             # Behavior of `linspace` changed, so results differ depending on
             # which version of Julia you are running...
-            @static if VERSION < v"0.6.0-dev.2390" # Make LinSpace generic, PR 18777
-                @test isa(@inferred(linspace(1.0m, 3.0m, 5)), LinSpace{typeof(1.0m)})
-                @test isa(@inferred(linspace(1.0m, 10m, 5)), LinSpace{typeof(1.0m)})
-                @test isa(@inferred(linspace(1m, 10.0m, 5)), LinSpace{typeof(1.0m)})
-                @test isa(@inferred(linspace(1m, 10m, 5)), LinSpace{typeof(1.0m)})
-            else
-                @test isa(@inferred(linspace(1.0m, 3.0m, 5)),
-                    StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
-                @test isa(@inferred(linspace(1.0m, 10m, 5)),
-                    StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
-                @test isa(@inferred(linspace(1m, 10.0m, 5)),
-                    StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
-                @test isa(@inferred(linspace(1m, 10m, 5)),
-                    StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
-            end
+            @test isa(@inferred(linspace(1.0m, 3.0m, 5)),
+                StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
+            @test isa(@inferred(linspace(1.0m, 10m, 5)),
+                StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
+            @test isa(@inferred(linspace(1m, 10.0m, 5)),
+                StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
+            @test isa(@inferred(linspace(1m, 10m, 5)),
+                StepRangeLen{typeof(1.0m), Base.TwicePrecision{typeof(1.0m)}})
             @test_throws Unitful.DimensionError linspace(1m, 10, 5)
             @test_throws Unitful.DimensionError linspace(1, 10m, 5)
         end
@@ -919,37 +880,22 @@ end
             @test @inferred((1:2:5)*mm) === 1mm:2mm:5mm
             @test @inferred((1.0:2.0:5.01)*mm) === 1.0mm:2.0mm:5.0mm
             r = @inferred(range(0.1, 0.1, 3) * 1.0s)
-            if VERSION >= v"0.6.0-pre"
-                @test r[3] === 0.3s
-            end
+            @test r[3] === 0.3s
         end
     end
     @testset "> Arrays" begin
         @testset ">> Array multiplication" begin
             # Quantity, quantity
-            @static if VERSION >= v"0.6.0-dev.2074" # RowVector, PR 19670
-                @test @inferred([1m, 2m]' * [3m, 4m])    == 11m^2
-                @test @inferred([1m, 2m]' * [3/m, 4/m])  == 11
-                @test typeof([1m, 2m]' * [3/m, 4/m])     == Int
-                @test typeof([1m, 2V]' * [3/m, 4/V])     == Int
-            else
-                @test @inferred([1m, 2m]' * [3m, 4m])    == [11m^2]
-                @test @inferred([1m, 2m]' * [3/m, 4/m])  == [11]
-                @test typeof([1m, 2m]' * [3/m, 4/m])     == Array{Int,1}
-                @test typeof([1m, 2V]' * [3/m, 4/V])     == Array{Int,1}
-            end
+            @test @inferred([1m, 2m]' * [3m, 4m])    == 11m^2
+            @test @inferred([1m, 2m]' * [3/m, 4/m])  == 11
+            @test typeof([1m, 2m]' * [3/m, 4/m])     == Int
+            @test typeof([1m, 2V]' * [3/m, 4/V])     == Int
             @test @inferred([1V,2V]*[0.1/m, 0.4/m]') == [0.1V/m 0.4V/m; 0.2V/m 0.8V/m]
 
-            @static if VERSION >= v"0.6.0-" # Probably broken as soon as we stopped
-                                            # using custom promote_op methods
-                @test_broken @inferred([1m, 2V]' * [3/m, 4/V])  == [11]
-                @test_broken @inferred([1m, 2V] * [3/m, 4/V]') ==
-                    [3 4u"m*V^-1"; 6u"V*m^-1" 8]
-            else
-                @test @inferred([1m, 2V]' * [3/m, 4/V])  == [11]
-                @test @inferred([1m, 2V] * [3/m, 4/V]') ==
-                    [3 4u"m*V^-1"; 6u"V*m^-1" 8]
-            end
+            # Probably broken as soon as we stopped using custom promote_op methods
+            @test_broken @inferred([1m, 2V]' * [3/m, 4/V])  == [11]
+            @test_broken @inferred([1m, 2V] * [3/m, 4/V]') ==
+                [3 4u"m*V^-1"; 6u"V*m^-1" 8]
 
             # Quantity, number or vice versa
             @test @inferred([1 2] * [3m,4m])         == [11m]
@@ -963,13 +909,10 @@ end
             @test typeof([3m,4m] * [1,2]')       == Array{typeof(1u"m"),2}
 
             # re-allow vector*(1-row matrix), PR 20423
-            @static if VERSION >= v"0.6.0-dev.2614" || # re-allow vector*(1-row matrix), PR 20423
-                       VERSION < v"0.6.0-dev.2074"     # RowVector, PR 19670
-                @test @inferred([1,2] * [3m 4m])     == [3m 4m; 6m 8m]
-                @test typeof([1,2] * [3m 4m])        == Array{typeof(1u"m"),2}
-                @test @inferred([3m,4m] * [1 2])     == [3m 6m; 4m 8m]
-                @test typeof([3m,4m] * [1 2])        == Array{typeof(1u"m"),2}
-            end
+            @test @inferred([1,2] * [3m 4m])     == [3m 4m; 6m 8m]
+            @test typeof([1,2] * [3m 4m])        == Array{typeof(1u"m"),2}
+            @test @inferred([3m,4m] * [1 2])     == [3m 6m; 4m 8m]
+            @test typeof([3m,4m] * [1 2])        == Array{typeof(1u"m"),2}
         end
         @testset ">> Element-wise multiplication" begin
             @test @inferred([1m, 2m, 3m] * 5)          == [5m, 10m, 15m]
@@ -980,13 +923,8 @@ end
             @test typeof(5m .* [1m, 2m, 3m])           == Array{typeof(1u"m^2"),1}
             @test @inferred(eye(2)*V)                  == [1.0V 0.0V; 0.0V 1.0V]
             @test @inferred(V*eye(2))                  == [1.0V 0.0V; 0.0V 1.0V]
-            @static if v"0.6.0-dev.1632" <= VERSION < v"0.6.0-pre.beta.85"
-                @test_broken @inferred(eye(2).*V)      == [1.0V 0.0V; 0.0V 1.0V]
-                @test_broken @inferred(V.*eye(2))      == [1.0V 0.0V; 0.0V 1.0V]
-            else
-                @test @inferred(eye(2).*V)             == [1.0V 0.0V; 0.0V 1.0V]
-                @test @inferred(V.*eye(2))             == [1.0V 0.0V; 0.0V 1.0V]
-            end
+            @test @inferred(eye(2).*V)                 == [1.0V 0.0V; 0.0V 1.0V]
+            @test @inferred(V.*eye(2))                 == [1.0V 0.0V; 0.0V 1.0V]
             @test @inferred([1V 2V; 0V 3V].*2)         == [2V 4V; 0V 6V]
             @test @inferred([1V, 2V] .* [true, false]) == [1V, 0V]
             @test @inferred([1.0m, 2.0m] ./ 3)         == [1m/3, 2m/3]
@@ -1085,10 +1023,7 @@ let fname = tempname()
     end
 end
 
-@static if VERSION >= v"0.6.0-dev.1980" # test_warn PR 19903
-    # check for the warning...
-    @test_warn "ShadowUnits" eval(:(u"m"))
-end
+@test_warn "ShadowUnits" eval(:(u"m"))
 
 # Test to make sure user macros are working properly
 # (and incidentally, for Compat macro hygiene in @dimension, @derived_dimension)
@@ -1109,6 +1044,107 @@ end
     @test isa(TUM.fu, TUM.FakeDim12345Units)
     @test isa(1(TUM.fu)^2, TUM.FakeDim212345)
     @test isa(TUM.fu^2, TUM.FakeDim212345Units)
+end
+
+@testset "Levels" begin
+    @testset "Explicit construction" begin
+        #  FixedReferenceLevel
+        ## Outer constructors
+        @test FixedReferenceLevel{li_dB,1}(2) isa FixedReferenceLevel{li_dB,1,Int}
+        @test FixedReferenceLevel{li_dB}(1,2) isa FixedReferenceLevel{li_dB,1,Int}
+        @test_throws DimensionError FixedReferenceLevel{li_dB,1}(2V)
+        @test_throws DimensionError FixedReferenceLevel{li_dB}(1,2V)
+
+        ## Inner constructors
+        ### Reference value ignored if equal in type signature
+        @test FixedReferenceLevel{li_dB,1,Int}(2) ===
+            FixedReferenceLevel{li_dB,1,Int}(1,2)
+        ### Throws ArgumentError otherwise
+        @test_throws ArgumentError FixedReferenceLevel{li_dB,1,Int}(2,2)
+
+        #  ArbitraryReferenceLevel
+        ## Outer constructors
+        @test ArbitraryReferenceLevel{li_dB}(1,2) isa ArbitraryReferenceLevel{li_dB,Int,Int}
+        @test_throws DimensionError ArbitraryReferenceLevel{li_dB}(1,2V)
+
+        ## Inner constructors
+        @test_throws DimensionError ArbitraryReferenceLevel{li_dB,Int,Int}(1,2V)
+
+        #  Level
+        @test Level{li_dB,1}(1,10) isa FixedReferenceLevel{li_dB,1,Int}
+        @test Level{li_dB,Int}(1,10) isa ArbitraryReferenceLevel{li_dB,Int,Int}
+    end
+
+    @testset "Implicit construction" begin
+        @test (@dB 2/1) === (@dB 2)
+        @test (@dB 2)   isa FixedReferenceLevel{li_dB,1,Int}
+        @test (@dB 2/2) isa ArbitraryReferenceLevel{li_dB,Int,Int}
+        @test 20*dB  ==  @dB 100
+        @test 20*dBm == (@dB 100mW/mW) == (@dB 100mW/1mW)
+        @test 20*dBV == (@dB 10V/V) == (@dB 10V/1V)
+    end
+
+    @testset "Dimensional analysis" begin
+        @testset "FixedReferenceLevel" begin
+            @test dimension(1dBm) === dimension(1mW)
+            @test dimension(typeof(1dBm)) === dimension(1mW)
+            @test dimension(1dBV) === dimension(1V)
+            @test dimension(typeof(1dBV)) === dimension(1V)
+            @test dimension(1dB) === NoDims
+            @test dimension(typeof(1dB)) === NoDims
+        end
+
+        @testset "Quantity{<:FixedReferenceLevel}" begin
+            @test dimension(1dBm/Hz) === dimension(1mW/Hz)
+            @test dimension(typeof(1dBm/Hz)) === dimension(1mW/Hz)
+            @test dimension(1dB/Hz) === dimension(Hz^-1)
+            @test dimension(typeof(1dB/Hz)) === dimension(Hz^-1)
+        end
+
+        @testset "ArbitraryReferenceLevel" begin
+            @test dimension(@dB 3V/2.14V) === dimension(1V)
+            @test dimension(typeof(@dB 3V/2.14V)) === dimension(1V)
+            @test dimension(@dB 3/2.14) === NoDims
+            @test dimension(typeof(@dB 3/2.14)) === NoDims
+        end
+
+        @testset "Quantity{<:ArbitraryReferenceLevel}" begin
+            @test dimension((@dB 3V/2.14V)/Hz) === dimension(1V/Hz)
+            @test dimension(typeof((@dB 3V/2.14V)/Hz)) === dimension(1V/Hz)
+        end
+    end
+
+    @testset "Conversion" begin
+        @test uconvert(V, (@dB 3V/2.14V)) === 3V  #fixedref
+        @test uconvert(V, (@dB 3V/1V)) === 3V     #arbref
+        @test uconvert(NoUnits, (@dB 3/1)) === 3
+    end
+
+    @testset "Addition and subtraction" begin
+        @test_broken isapprox(10dBm + 10dBm, 13dBm; atol=0.02dBm) #TODO define isapprox
+        @test isapprox(13dBm, 20mW; atol = 0.1mW)
+        @test @dB(10mW/mW) + 1mW === 11mW
+        @test 1mW + @dB(10mW/mW) === 11mW
+        @test @dB(10mW/mW) + @dB(90mW/mW) === @dB(100mW/mW)
+        #TODO test dimensionless addition rules
+    end
+
+    @testset "Multiplication and division" begin
+        @test @dB(10V/V)*10 == 100V
+        @test @dB(10V/V)/20 == 0.5V
+        @test 10*@dB(10V/V) == 100V
+        @test_broken 10/@dB(10V/V) == 1V^-1
+    end
+
+    @testset "Thanks for signing up for Log Facts!" begin
+        @test 20dB == 100
+        @test 20dBm ≈ 100mW
+        @test 20dBV ≈ 10V
+        @test 40dBV ≈ 100V
+        @test ustrip(@Np e^500/1) == 500.0
+        @test ustrip(@dB 100/1) == 20.0
+        @test ustrip(@B 100/1) == 2.0
+    end
 end
 
 end
